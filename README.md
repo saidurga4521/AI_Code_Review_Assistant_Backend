@@ -1,0 +1,2 @@
+- uvicorn is the ASGI(Asynchronous server gateway interface) and it supports asynchronous operations as well as
+- HTTPX is a Python HTTP client library used to send HTTP requests from your Python application to other servers or APIs

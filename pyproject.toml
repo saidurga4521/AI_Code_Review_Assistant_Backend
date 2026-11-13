@@ -1,0 +1,17 @@
+[project]
+name = "ai-code-review-assistant-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "durgaprasad4521", email = "durgaprasad@kascommerce.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+ai-code-review-assistant-backend = "ai_code_review_assistant_backend:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
