@@ -7,7 +7,16 @@ authors = [
     { name = "durgaprasad4521", email = "durgaprasad@kascommerce.com" }
 ]
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi[standard]>=0.162.7",
+    "httpx>=0.28.1",
+    "psycopg2>=2.9.13",
+    "psycopg2-binary>=2.9.9",
+    "pydantic>=2.14.3",
+    "python-dotenv>=1.2.4",
+    "sqlalchemy>=2.1.8",
+    "uvicorn[standard]>=0.54.0",
+]
 
 [project.scripts]
 ai-code-review-assistant-backend = "ai_code_review_assistant_backend:main"
