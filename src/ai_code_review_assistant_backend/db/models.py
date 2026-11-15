@@ -1,9 +1,10 @@
 import datetime
-from sqlalchemy import Column,Integer,String,DateTime
+from sqlalchemy import Column,Integer,String,DateTime,ForeignKey,Text
+from sqlalchemy.orm import relationship
 from ai_code_review_assistant_backend.db.session import Base
 
 class Repository(Base):
-  __tablename__="repositories"
+  __tablename__= "repositories"
 
   id=Column(Integer,primary_key=True,index=True)
   name=Column(String(255),unique=True,index=True,nullable=False)
@@ -11,3 +12,69 @@ class Repository(Base):
   default_branch=Column(String(100),default='main')
   status=Column(String(50),default='UNINDEXED') # UNINDEXED, INDEXING, READY, FAILED
   created_at =Column(DateTime,default=datetime.datetime.now)
+
+  ## Relationship to its chunks
+
+  chunks=relationship('IndexedChunk',back_populates='repository')
+  reviews=relationship('PRReview',back_populates='repository')
+
+
+class IndexedChunk(Base):
+  __tablename__='indexed_chunk'
+
+  id=Column(Integer,primary_key=True,nullable=False)
+  repo_id=Column(Integer,ForeignKey('repositories.id'),nullable=False)
+  file_path=Column(String(512),nullable=False,index=True)
+  start_line=Column(Integer,nullable=False)
+  end_line=Column(Integer,nullable=False)
+  symbol_name=Column(String(512),nullable=True)
+  language=Column(String(100),default='plaintext')
+  content=Column(Text,nullable=False)
+  embedding_json=Column(Text,nullable=True)
+
+  # Link back to repository table
+  repository = relationship('Repository',back_populates='chunks')
+
+
+class PRReview(Base):
+
+  __tablename__='pr_review'
+
+  id=Column(Integer,primary_key=True,index=True)
+  repo_id=Column(Integer,ForeignKey('repositories.id'),nullable=False)
+  pr_number=Column(Integer,nullable=True)
+  commit_hash=Column(String(64),nullable=True)
+  summary=Column(Text,nullable=True)
+  risk_level=Column(String(50),default='LOW') #LOW,MEDIUM,HIGH,CRITICAL
+  created_at=Column(DateTime,default=datetime.datetime.now)
+
+  repository = relationship("Repository",back_populates='reviews')
+
+  ## Relationship to findings
+  findings=relationship('ReviewFinding',back_populates='review',cascade='all,delete-orphan')
+
+  ## cascade='all, delete-orphan' means if a PR review is deleted, all its individual findings get cleaned up automatically
+
+class ReviewFinding(Base):
+
+  __tablename__ = 'review_findings'
+
+  id=Column(Integer,primary_key=True,index=True)
+  review_id=Column(Integer,ForeignKey('pr_review.id'),nullable=False)
+  file_path=Column(String(512),nullable=False)
+  line_number=Column(Integer,nullable=False)
+  severity=Column(String(50),nullable=False) ## CRITICAL,HIGH,MEDIUM,LOW,INFO
+  category=Column(String(50),nullable=False)
+  title=Column(String(255),nullable=False)
+  description=Column(Text,nullable=False)
+  suggested_diff=Column(Text,nullable=True)
+  evidence_snippet=Column(Text,nullable=True)
+
+  # Link back to PRReview
+  review=relationship('PRReview',back_populates='findings') 
+
+  
+
+
+
+  
