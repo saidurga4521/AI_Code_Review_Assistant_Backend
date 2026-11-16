@@ -138,3 +138,156 @@ We use a `review_findings` table to store each individual issue or recommendatio
 10. **evidence_snippet**: Relevant surrounding source code retrieved from the codebase that provides evidence supporting the finding.
 
 
+# WriteAction Table
+
+A core requirement of our system is **Human-in-the-Loop Safeguards**: the AI must **never** modify repository files, push commits, or post comments to GitHub autonomously without developer approval.
+
+Whenever the AI suggests an automated fix (such as a code patch, a generated unit test file, or a PR review comment), it saves that suggestion in the `write_actions` table with `status = "PENDING_APPROVAL"`.
+
+Only when a human developer reviews and approves the action does the system execute it.
+
+**Columns**
+
+1. **`id`**: Unique primary key number for each action (1, 2, 3...).
+
+2. **`finding_id`**: Foreign key referencing `review_findings.id`, linking the suggested action to the specific finding it solves.
+
+3. **`action_type`**: The kind of write action being requested:
+   - `PR_COMMENT` – Post a review comment to the GitHub PR.
+   - `APPLY_PATCH` – Apply a suggested code diff to the codebase.
+   - `CREATE_TEST` – Generate and write a new unit test file.
+
+4. **`payload`**: The actual content to execute (e.g., the code diff text, the generated Python test file, or the Markdown comment).
+
+5. **`status`**: The approval state of this action:
+   - `PENDING_APPROVAL` – Staged and waiting for a human developer to review.
+   - `APPROVED` – Developer confirmed the action is safe and correct.
+   - `REJECTED` – Developer dismissed the suggestion.
+   - `EXECUTED` – Action was successfully performed (e.g., committed or posted).
+
+6. **`resolved_by`**: Username of the developer who approved or rejected the action (e.g., `"durgaprasad"`).
+
+7. **`resolved_at`**: Timestamp indicating when the decision was made.
+
+8. **`created_at`**: Timestamp indicating when the AI proposed this action.
+
+
+# indexing_service.py
+
+## Why Is This Filter Essential?
+
+1. **Third-Party Folders:** If a project contains folders like `venv/` or `node_modules/`, there could be thousands of files belonging to external libraries. We only want to index the developer's actual source code.
+
+2. **Binary Files:** Trying to read images (`.png`), PDFs, or compiled files (`.pyc`) as text can cause errors. We should exclude these files from text processing.
+
+3. **Huge Files:** A 5 MB minified JavaScript bundle or auto-generated data file can consume excessive memory and exceed AI token limits. We set a safe file-size limit (e.g., 500 KB).
+
+## How Does the Filter Work?
+
+- **`file_path.parts`**: Returns all the individual components of a file path as a tuple.
+
+  Example:
+
+  ```python
+  file_path = Path("my_project/node_modules/express/index.js")
+
+  file_path.parts
+  # ('my_project', 'node_modules', 'express', 'index.js')
+  ```
+
+  Because `"node_modules"` is present in `IGNORE_DIRS`, the file is excluded immediately.
+
+- **`file_path.suffix`**: Returns the file extension, such as `.png`, `.lock`, or `.py`.
+
+- **`file_path.stat().st_size`**: Returns the file size in bytes. We can convert it into KB to check whether it exceeds the configured size limit.
+
+1. **chunk_by_lines()**
+
+Splits the given source code into smaller chunks based on a fixed number of lines.
+
+Uses splitlines() to convert the source code into individual lines.
+
+Calculates the step size using chunk_size - overlap.
+
+Extracts chunks containing up to the specified number of lines.
+
+Maintains overlapping lines between consecutive chunks to preserve context.
+
+Stores each chunk along with its metadata:
+
+File path
+
+Starting and ending line numbers
+
+Symbol name
+
+Programming language
+
+Actual code content
+
+Returns a list of dictionaries containing the generated chunks.
+
+2. **chunk_file()**
+
+Reads a source code file from the filesystem and generates chunks using chunk_by_lines().
+
+Opens the file in read mode using UTF-8 encoding.
+
+Reads the complete file content.
+
+Handles file-reading errors and returns an empty list if an error occurs.
+
+Passes the file path and source code to chunk_by_lines().
+
+Returns the generated chunks.
+
+
+# Repository Indexing Service
+
+### The Function: `index_repository_files()`
+
+#### What this function does step-by-step:
+
+1. Sets the repository status to `"INDEXING"` in the database.
+2. Walks through every file and folder in the repository.
+3. Calls `should_index_file()` to skip unwanted files and folders such as `.git`, `node_modules`, and images.
+4. Calls `chunk_file()` on every valid source code file to split it into smaller chunks.
+5. Creates `IndexedChunk` database objects and saves them into PostgreSQL.
+6. Sets the repository status to `"READY"` to indicate that indexing is complete.
+
+
+# Building the FastAPI REST API Layer
+
+The FastAPI REST API layer consists of three main components:
+
+### 1. Schemas (`schemas/`)
+
+- Defines the structure of incoming request data and outgoing response data.
+- Validates the data received from clients.
+- Similar to Zod or Joi in Node.js.
+
+### 2. Routers / Controllers (`api/v1/`)
+
+- Handles incoming HTTP requests such as `POST` and `GET`.
+- Calls the appropriate service functions to perform business logic.
+- Returns the response to the client.
+
+### 3. Main Application (`main.py`)
+
+- Acts as the main entry point of the FastAPI application.
+- Registers all API routers.
+- Starts the application using an ASGI server such as Uvicorn.
+
+### Why Do We Need Schemas?
+
+- Schemas define the expected structure of incoming request data and outgoing response data.
+- When a user sends a `POST /repositories` request with JSON data:
+  `{"name": "my-project", "clone_url": "https://github.com/..."}`
+- Pydantic validates the incoming data, ensuring that `name` is a string and is not empty.
+- It also helps structure and format the response JSON before sending it back to the client.
+
+### Why Do We Need `from_attributes = True`?
+- Database returns SQLAlchemy object not a dictionary
+- **`Optional[str] = None`**: The field can contain a string or `None`. By default, its value is `None`.
+- **`from_attributes = True`**: Allows Pydantic to read data directly from SQLAlchemy model objects, instead of only reading from dictionaries.
+

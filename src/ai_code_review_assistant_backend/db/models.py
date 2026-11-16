@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column,Integer,String,DateTime,ForeignKey,Text
+from sqlalchemy import Column,Integer,String,DateTime,ForeignKey,Text,Boolean
 from sqlalchemy.orm import relationship
 from ai_code_review_assistant_backend.db.session import Base
 
@@ -73,7 +73,42 @@ class ReviewFinding(Base):
   # Link back to PRReview
   review=relationship('PRReview',back_populates='findings') 
 
-  
+  # Relation to actions
+  actions=relationship('WriteAction',back_populates='finding',cascade='all,delete-orphan')
+
+  # Relation to feedback
+  feedback=relationship('DeveloperFeedback',back_populates='finding',cascade='all,delete-orphan')
+
+class WriteAction(Base):
+   __tablename__ = 'write_actions'
+
+   id=Column(Integer,primary_key=True,index=True)
+   finding_id=Column(Integer,ForeignKey('review_findings.id'),nullable=True)
+   action_type=Column(String(50),nullable=False)
+   payload=Column(Text,nullable=True)
+   status=Column(String(50))
+   resolved_by=Column(String(100),nullable=True)
+   resolved_at=Column(DateTime,nullable=True)
+   created_at=Column(DateTime,default=datetime.datetime.now)
+
+   # Link back to ReviewFinding
+
+   finding=relationship('ReviewFinding',back_populates='actions')
+
+class DeveloperFeedback(Base):
+   __tablename__ = 'developer_feedback'
+
+   id=Column(Integer,primary_key=True,index=True)
+   finding_id=Column(Integer,ForeignKey('review_findings.id'),nullable=False)
+   is_useful=Column(Boolean,nullable=False)
+   reason=Column(String(50),nullable=True)
+   comment=Column(Text,nullable=True) 
+   created_at=Column(DateTime,default=datetime.datetime.now) 
+
+   # Link Back to Review Finding
+   finding=relationship('ReviewFinding',back_populates='feedback')
+
+   
 
 
 
