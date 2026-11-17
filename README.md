@@ -3,7 +3,7 @@
 - pydantic_settings is a library that helpful for manage the settings of your python application like (database urls,secret keys)
 - Python cannot talk to PostgreSQL by itself; it needs a translator (a database driver). For SQLAlchemy and PostgreSQL, the industry standard driver is psycopg2-binary
 
-- session.py in short:
+### session.py in short:
 
 **engine**
 - Connects Python to the database
@@ -21,6 +21,15 @@
 - Gives each API request its own session
 - Closes the session when the request ends
 Prevents connection leaks
+
+### Database Engine, Connection Pool, and Sessions works for multiple users
+
+- **Shared Engine and Pool:** A single database engine and connection pool are shared across all users and requests.
+- **Separate Session per Request:** Every incoming request gets its own database session through `get_db()`.
+- **Connection Borrowing:** Each session borrows a database connection from the connection pool when needed.
+- **Connection Return:** When `session.close()` is called, the borrowed connection is returned to the pool for reuse.
+- **Transaction Isolation:** Uncommitted changes remain within that session's transaction and are not visible to other sessions.
+- **Pool Exhaustion:** If all connections in the pool are in use, new requests wait until a connection becomes available (or the configured timeout is reached).
 
 
 ### Repository Table
@@ -291,3 +300,61 @@ The FastAPI REST API layer consists of three main components:
 - **`Optional[str] = None`**: The field can contain a string or `None`. By default, its value is `None`.
 - **`from_attributes = True`**: Allows Pydantic to read data directly from SQLAlchemy model objects, instead of only reading from dictionaries.
 
+
+
+# Repository API(repositories.py) – Important Points
+
+## General
+
+- **Database Session:** `Depends(get_db)` provides a database session for each request, ensuring requests use separate sessions.
+- **SQLite Thread Safety:** Add `connect_args={"check_same_thread": False}` to `create_engine` because FastAPI may handle requests across different threads.
+- **Refresh Database Object:** `db.refresh(new_repo)` reloads the object from the database to retrieve the latest values, including database-generated fields such as `id` and `created_at`.
+
+## 1. `POST /repositories/` – Create a Repository
+
+- Checks whether a repository with the same `name` already exists. Returns `400` if it does.
+- Every new repository starts with the status `UNINDEXED`.
+- Uses `db.add()`, `db.commit()`, and `db.refresh()` to save the repository and retrieve generated values such as `id` and `created_at`.
+- `clone_url` is optional.
+
+## 2. `GET /repositories/` – List All Repositories
+
+- Retrieves all repositories from the database.
+- Uses `@router.get(...)` with `response_model=List[RepositoryResponse]` because the endpoint returns a list.
+- Pagination using `skip` and `limit` can be added later when the repository list grows.
+
+## 3. `GET /repositories/{repo_id}` – Get a Single Repository
+
+- `repo_id` is extracted from the URL and validated as an integer.
+- Returns `404 Not Found` if the repository does not exist.
+- Uses `.first()`, which returns the matching record or `None` if no record is found.
+- Use `404` instead of `400` for a repository that does not exist.
+
+## 4. `POST /repositories/{repo_id}/index` – Index Repository Code
+
+- `repo_path` represents the local folder path of the repository and is passed as a query parameter.
+- Checks whether the repository exists before starting the indexing process. Returns `404` if it does not.
+- Calls `index_repository_files()` to process source files, divide them into chunks, and save the chunks in the database.
+- Returns a `500 Internal Server Error` if the indexing process fails.
+- The indexing service should update the repository status (for example, to `INDEXED`) so the response reflects the latest status.
+- **Security:** A user-supplied `repo_path` could point to any folder on the server. Restrict access to an allowed directory, such as `DATA_DIR/repos`, before deploying.
+
+## 5. `GET /repositories/{repo_id}/chunks` – View Repository Chunks
+
+- Retrieves all `IndexedChunk` records associated with the specified repository.
+- Uses `response_model=List[ChunkResponse]` because the endpoint returns a list of chunks.
+- Returns an empty list if the repository has not been indexed yet.
+- Add pagination later because source-code chunks can produce large responses.
+
+### main.py
+
+#### `Base.metadata.create_all(bind=engine)`
+
+Creates all database tables based on the SQLAlchemy model classes, if they do not already exist.
+
+**What Each Part Means**
+
+- **`Base`**: The parent class inherited by all SQLAlchemy models, such as `Repository` and `IndexedChunk`.
+- **`Base.metadata`**: Stores information about all models that inherit from `Base`, including table names, columns, and data types.
+- **`create_all()`**: Reads the metadata and executes the required `CREATE TABLE` statements for tables that do not already exist.
+- **`bind=engine`**: Specifies which database engine should be used to create the tables.

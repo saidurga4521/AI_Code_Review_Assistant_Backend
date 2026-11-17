@@ -120,7 +120,7 @@ def index_repository_files(repo_id:int,repo_path:str,db:Session)->int:
         continue
 
       #calculate relative path
-      relative_path=str(file_path.relative_to(root_path))
+      relative_path=str(file_path.relative_to(root_path)) # This relative path just for storing
 
       #chunk the file
       chunks=chunk_file(file_path)
