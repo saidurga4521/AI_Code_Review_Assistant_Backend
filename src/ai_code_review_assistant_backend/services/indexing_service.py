@@ -4,6 +4,7 @@ from typing import List,Dict,Any
 from sqlalchemy.orm import Session
 from ai_code_review_assistant_backend.db.models import Repository,IndexedChunk
 
+from langchain_text_splitters import Language,RecursiveCharacterTextSplitter
 # Directories we should ALWAYS ignore
 IGNORE_DIRS = {
     ".git", ".github", "__pycache__", "venv", ".venv", "env",
@@ -16,7 +17,24 @@ IGNORE_EXTENSIONS = {
     ".svg", ".mp4", ".pdf", ".zip", ".tar", ".gz", ".lock", ".min.js"
 }
 
-
+# Map file extensions to LangChain's syntax-aware languages
+EXTENSION_TO_LANGUAGE = {
+    ".py": Language.PYTHON,
+    ".js": Language.JS,
+    ".jsx": Language.JS,
+    ".ts": Language.TS,
+    ".tsx": Language.TS,
+    ".java": Language.JAVA,
+    ".cpp": Language.CPP,
+    ".c": Language.CPP,
+    ".cs": Language.CSHARP,
+    ".go": Language.GO,
+    ".rs": Language.RUST,
+    ".php": Language.PHP,
+    ".rb": Language.RUBY,
+    ".html": Language.HTML,
+    ".md": Language.MARKDOWN,
+}
 
 def should_index_file(file_path:Path,max_size_kb:int = 500)->bool:
   """
@@ -44,50 +62,122 @@ def should_index_file(file_path:Path,max_size_kb:int = 500)->bool:
   return True  
 
 
-## store the code in chunks
-def chunk_by_lines(file_path:str,code:str,chunk_size:int=40,overlap:int=5)->List[Dict[str,Any]]:
+# ## store the code in chunks
+# def chunk_by_lines(file_path:str,code:str,chunk_size:int=40,overlap:int=5)->List[Dict[str,Any]]:
 
+#   """
+#   Universal chunker for ALL languages(Python,JS,Java,Go,etc..)
+#   Slices code line by line with a small overlap so context isn't lost
+#   """
+
+#   lines=code.splitlines()
+#   if not lines:
+#     return []
+
+#   chunks=[]
+#   step=max(1,chunk_size-overlap)
+
+#   for i in range(0,len(lines),step):
+#     chunk_lines=lines[i:i+chunk_size]
+#     start_line=i+1
+#     end_line=i+len(chunk_lines)
+
+#     chunks.append({
+#       'file_path':file_path,
+#       'start_line':start_line,
+#       'end_line':end_line,
+#       'symbol_name':f'lines_{start_line}_{end_line}',
+#       'language':Path(file_path).suffix.lstrip('.') or 'plaintext',
+#       'content':'\n'.join(chunk_lines)
+#     })
+
+#   return chunks
+
+
+# def chunk_file(file_path:Path,chunk_size:int=40,overlap:int=5) ->List[Dict[str,Any]]:
+#   """
+#   Reads a file and returns its chunks
+#   """
+#   try:
+#     with open(file_path,'r',encoding='utf8',errors='ignore') as f:
+#       code=f.read()
+#   except Exception as e:
+#     print(f"Errro Reading {file_path}:{e}")
+#     return []
+
+#   return chunk_by_lines(str(file_path),code,chunk_size=chunk_size,overlap=overlap)
+
+
+def chunk_file(file_path:Path,chunk_size:int =600,chunk_overlap:int=100)->List[Dict[str,Any]]:
   """
-  Universal chunker for ALL languages(Python,JS,Java,Go,etc..)
-  Slices code line by line with a small overlap so context isn't lost
+  Uses Langchain's Splitter to split files into chunks
+  while keeping classes,functions, and methods together
+  supports Python,Java,JS,TS,C++,Go,Rust and more.
   """
 
-  lines=code.splitlines()
-  if not lines:
-    return []
-
-  chunks=[]
-  step=max(1,chunk_size-overlap)
-
-  for i in range(0,len(lines),step):
-    chunk_lines=lines[i:i+chunk_size]
-    start_line=i+1
-    end_line=i+len(chunk_lines)
-
-    chunks.append({
-      'file_path':file_path,
-      'start_line':start_line,
-      'end_line':end_line,
-      'symbol_name':f'lines_{start_line}_{end_line}',
-      'language':Path(file_path).suffix.lstrip('.') or 'plaintext',
-      'content':'\n'.join(chunk_lines)
-    })
-
-  return chunks
-
-
-def chunk_file(file_path:Path,chunk_size:int=40,overlap:int=5) ->List[Dict[str,Any]]:
-  """
-  Reads a file and returns its chunks
-  """
+  # read the file
   try:
-    with open(file_path,'r',encoding='utf8',errors='ignore') as f:
+    with open(file_path,'r',encoding='utf-8',errors='ignore') as f:
       code=f.read()
   except Exception as e:
-    print(f"Errro Reading {file_path}:{e}")
+    print(f"Error reading {file_path}: {e}")
     return []
 
-  return chunk_by_lines(str(file_path),code,chunk_size=chunk_size,overlap=overlap)  
+  if not code.strip():
+    return []
+  ext=file_path.suffix.lower()
+  lang=EXTENSION_TO_LANGUAGE.get(ext)
+
+  #1.choose the language aware splitter if supported,else general text splitter
+  if lang:
+    splitter=RecursiveCharacterTextSplitter.from_language(
+      language=lang,
+      chunk_size=chunk_size,
+      chunk_overlap=chunk_overlap
+    )
+  else:
+    splitter=RecursiveCharacterTextSplitter(
+      chunk_size=chunk_size,
+      chunk_overlap=chunk_overlap
+    )
+
+  # 2.split the code into chunks and it retuns in documents
+  docs=splitter.create_documents([code])
+
+  # 3.calculate exact line numbers for each chunk
+  all_lines=code.splitlines()
+  chunks=[]
+  curr_search_idx=0
+
+  for doc in docs:
+    chunk_content=doc.page_content
+    first_line=chunk_content.splitlines()[0] if chunk_content.splitlines() else ''
+
+    #Locate where this chunk starts in the original file
+    start_line=1
+    for idx in range(curr_search_idx,len(all_lines)):
+      if first_line and first_line.strip() in all_lines[idx]:
+        start_line=idx+1
+        curr_search_idx=idx
+        break
+
+    line_count=len(chunk_content.splitlines())
+    end_line=start_line+max(1,line_count)-1
+
+    chunks.append({
+      'file_path':str(file_path),
+      'start_line':start_line,
+      'end_line':end_line,
+      'symbol_name':f"{lang.value if lang else 'text'}_chunk_{start_line}_{end_line}",
+      'language':lang.value if lang else ext.lstrip('.') or 'plaintext',
+      'content':chunk_content
+    }) 
+
+  return chunks     
+
+
+
+  
 
 
 def index_repository_files(repo_id:int,repo_path:str,db:Session)->int:
