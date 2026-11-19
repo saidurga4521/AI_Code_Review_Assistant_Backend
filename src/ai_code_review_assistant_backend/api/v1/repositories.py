@@ -7,6 +7,9 @@ from ai_code_review_assistant_backend.db.session import get_db
 from ai_code_review_assistant_backend.schemas.repository import RepositoryResponse,RepositoryCreate,ChunkResponse 
 from ai_code_review_assistant_backend.services.indexing_service import index_repository_files
 
+from ai_code_review_assistant_backend.schemas.rag import QuestionRequest,QuestionResponse
+from ai_code_review_assistant_backend.services.rag_service import answer_codebase_question
+
 # create the router
 router=APIRouter(prefix='/repositories',tags=['Repositories'])
 
@@ -91,3 +94,29 @@ def get_repository_chunk(repo_id:int,db:Session=Depends(get_db)):
   """
   chunks=db.query(IndexedChunk).filter(IndexedChunk.repo_id == repo_id).all()
   return chunks  
+
+
+#6.Post/repositories/{repo_id}/ask
+@router.post('/{repo_id}/ask',response_model=QuestionResponse)
+def ask_codebase_question(repo_id:int,request:QuestionRequest,db:Session=Depends(get_db)):
+  """
+  Ask any technical question about a repository.
+  Returns an answer strictly grounded in the codebase with file/line evidence
+  """
+  repo=db.query(Repository).filter(Repository.id == repo_id).first()
+  if not repo:
+    raise HTTPException(
+      status_code=status.HTTP_404_NOT_FOUND,
+      detail=f"Repository with ID {repo_id} not found"
+    )
+
+  try:
+    result=answer_codebase_question(query=request.query,repo_id=repo_id,db=db)
+    return result
+  except Exception as e:
+       raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating answer: {str(e)}"
+        )
+
+  
