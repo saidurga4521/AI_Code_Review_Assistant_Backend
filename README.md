@@ -522,3 +522,87 @@ The user prompt contains:
 - Extracts evidence from the retrieved chunks.
 - Includes file path, starting line, ending line and similarity score.
 - Returns the answer and evidence together as a dictionary.
+
+## `review_service.py`
+
+**What it does**
+
+- Takes a git diff (the code changes in a pull request), asks the AI to review it, and saves the problems found in the database.
+
+**Input and output**
+
+- Input: `repo_id`, `diff_text`, `db`, and optionally `pr_number` and `commit_sha`.
+- Output: a dictionary with `review_id`, `summary`, `risk_level`, and the list of findings.
+
+**Steps**
+
+1. Check the repository exists. If not, raise a `ValueError`.
+2. Take the first 5 changed lines (starting with `+` or `-`) as search keywords.
+3. Use `search_codebase` to get the top 3 related code chunks (RAG).
+4. Build the prompts:  
+   - The system prompt says to act as a code reviewer and return only JSON.
+   - The user prompt holds the related code and the diff inside tags.
+5. Call the AI with `llm.invoke(...)`.
+6. Clean the reply (remove the ` ```json ` fences) and parse it with `json.loads()`.
+7. Save one `PRReview` row.
+8. Save a `ReviewFinding` row for each issue.
+9. If a finding has a `suggested_diff`, save a `WriteAction` with status `PENDING_APPROVAL`.
+10. Return the result.
+
+**What the AI checks**
+
+- `BUG_RISK`: logic errors, unhandled exceptions.
+- `SECURITY`: SQL injection, hardcoded secrets.
+- `MISSING_TESTS`: new code without tests.
+- `ARCHITECTURE`: breaking changes.
+
+**Tables used**
+
+- `PRReview`: one row per review.
+- `ReviewFinding`: one row per issue.
+- `WriteAction`: a staged fix waiting for approval.
+
+**Key points**
+
+- Fixes are never applied automatically. A human must approve them first.
+- `.get("key", default)` fills in a default if the AI skips a field.
+- `db.refresh()` loads the new `id` so findings can link to the review.
+
+## My notes: regex
+
+**What it is**
+
+- Regex (regular expression) is a pattern used to find, check, or replace text.
+- In Python, use the `re` module: `import re`.
+
+**Common functions**
+
+- `re.search(pattern, text)`: find the first match anywhere in the text.
+- `re.match(pattern, text)`: match only at the start of the text.
+- `re.findall(pattern, text)`: return all matches as a list.
+- `re.sub(pattern, replacement, text)`: replace every match.
+
+**Basic symbols**
+
+| Symbol | Meaning |
+|---|---|
+| `^` | Start of a line |
+| `$` | End of a line |
+| `.` | Any one character |
+| `*` | Zero or more of the previous item |
+| `+` | One or more of the previous item |
+| `?` | Zero or one of the previous item |
+| `\s` | Whitespace (space, tab, newline) |
+| `\d` | A digit |
+| `\w` | A letter, digit, or underscore |
+| `[abc]` | One of a, b, or c |
+| `( )` | A group |
+
+**Flags**
+
+- `re.MULTILINE`: `^` and `$` match at every line, not only the start and end of the whole text.
+- `re.IGNORECASE`: ignores upper and lower case.
+
+**Tip**
+
+- Write patterns as raw strings, `r"..."`, so `\s` and `\d` work correctly.
