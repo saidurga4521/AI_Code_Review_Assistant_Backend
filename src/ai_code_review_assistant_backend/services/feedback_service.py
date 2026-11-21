@@ -10,7 +10,7 @@ from ai_code_review_assistant_backend.db.models import (
 
 def record_finding_feedback(finding_id :int,is_useful:bool,db:Session,reason:Optional[str]=None,comment:Optional[str]=None)->DeveloperFeedback:
   """
-  Records Developer finding feedback on a specific ReviewFinding
+  Store Developer finding feedback on a specific ReviewFinding
   """
   finding=db.query(ReviewFinding).filter(ReviewFinding.id == finding_id).first()
   if not finding:
@@ -40,7 +40,23 @@ def get_repository_feedback_stats(repo_id:int,db:Session)->Dict[str,Any]:
 
   feedbacks=(
     db.query(DeveloperFeedback)
-    .join(ReviewFinding,DeveloperFeedback)
+    .join(ReviewFinding,DeveloperFeedback.finding_id == ReviewFinding.id)
+    .join(PRReview,ReviewFinding.review_id == PRReview.id)
+    .filter(PRReview.repo_id == repo_id)
+    .all()
   )
+
+  total=len(feedbacks)
+  useful=sum(1 for f in feedbacks if f.is_useful)
+  false_positives=total-useful
+  precision_rate=round(useful/total*100,2) if total>0 else 0.0
+
+  return {
+    "repo_id":repo_id,
+    "total_feedback":total,
+    "useful_count":useful,
+    'false_positive_count':false_positives,
+    'precision_rate_percentage':precision_rate
+  }
 
   

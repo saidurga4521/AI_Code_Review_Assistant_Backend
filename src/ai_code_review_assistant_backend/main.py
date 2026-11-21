@@ -6,6 +6,7 @@ from ai_code_review_assistant_backend.config import settings
 from ai_code_review_assistant_backend.api.v1.repositories import router as repository_router 
 from ai_code_review_assistant_backend.api.v1.reviews import router as review_router
 from ai_code_review_assistant_backend.api.v1.action import router as actions_router
+from ai_code_review_assistant_backend.api.v1.feedback import router as feedback_router
 
 
 #1.make sure all the database tables exist otherwise its creates all the tables
@@ -30,6 +31,7 @@ app.add_middleware(CORSMiddleware,
 app.include_router(repository_router,prefix=settings.API_V1_STR)
 app.include_router(review_router,prefix=settings.API_V1_STR)
 app.include_router(actions_router,prefix=settings.API_V1_STR)
+app.include_router(feedback_router,prefix=settings.API_V1_STR)
 
 #5.Health check endpoint
 @app.get('/health',tags=['Health'])

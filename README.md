@@ -637,3 +637,49 @@ The user prompt contains:
 2. Alex calls `get_pending_actions` and sees the list.
 3. Alex clicks APPROVE or REJECT, which calls `resolve_write_action`.
 4. The status changes, and it can’t be changed again.
+
+
+## feedback service
+
+**What this file does**
+
+- It handles the last step of the journey. Alex rates each AI finding as `USEFUL` or `FALSE POSITIVE`.
+- It also turns those ratings into numbers that show how accurate the AI is for a repo.
+
+**Function 1: `record_finding_feedback`**
+
+- Saves one feedback row for one finding.
+- `is_useful=True` means useful, and `False` means false positive.
+- `reason` and `comment` are optional extra notes.
+- It first checks that the finding exists, and raises a `ValueError` if not.
+- Then it does the usual steps: `db.add()`, `db.commit()`, `db.refresh()`, and returns the saved row.
+
+**Function 2: `get_repository_feedback_stats`**
+
+- Calculates how good the AI reviews are for one repository.
+- It checks the repo exists first.
+- The query goes through 3 tables to reach the repo:
+  - `DeveloperFeedback` → `ReviewFinding` → `PRReview` → `repo_id`
+- The joins are needed because feedback only knows its finding, and a finding only knows its review. Only the review knows the repo.
+
+**The numbers it returns**
+
+- `total_feedback`: how many ratings were given.
+- `useful_count`: how many were useful.
+- `false_positive_count`: total minus useful.
+- `precision_rate_percentage`: (useful / total) × 100.
+
+**Example**
+
+- 10 ratings, 7 useful, 3 false positives.
+- Precision = 7 / 10 × 100 = **70.0%**.
+- Meaning: 7 out of 10 findings the AI reported were real problems.
+
+**Safe against divide by zero**
+
+- If there is no feedback yet, `total` is 0, so it returns `0.0` instead of crashing.
+
+**Why this matters**
+
+- It shows whether the AI reviewer is worth trusting.
+- A low precision rate means too many false alarms, and the prompt needs to be improved.
