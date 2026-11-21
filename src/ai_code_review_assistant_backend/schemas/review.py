@@ -8,7 +8,7 @@ class ReviewCreateRequest(BaseModel):
     ...,
     description='The git diff to analyze',
     example="diff --git a/src/main.py b/src/main.py\n..."
-  ),
+  )
   pr_number:Optional[int]=Field(None,example=42,description='Pull request Number')
   commit_sha:Optional[str]=Field(None,example='a1b2c3d4',description='Commit SHA')
 

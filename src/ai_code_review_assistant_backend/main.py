@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai_code_review_assistant_backend.db.session import Base,engine
 from ai_code_review_assistant_backend.config import settings
 from ai_code_review_assistant_backend.api.v1.repositories import router as repository_router 
+from ai_code_review_assistant_backend.api.v1.reviews import router as review_router
+from ai_code_review_assistant_backend.api.v1.action import router as actions_router
+
 
 #1.make sure all the database tables exist otherwise its creates all the tables
 Base.metadata.create_all(bind=engine)
@@ -25,6 +28,8 @@ app.add_middleware(CORSMiddleware,
 
 #4.Include our Routers under /api/v1
 app.include_router(repository_router,prefix=settings.API_V1_STR)
+app.include_router(review_router,prefix=settings.API_V1_STR)
+app.include_router(actions_router,prefix=settings.API_V1_STR)
 
 #5.Health check endpoint
 @app.get('/health',tags=['Health'])

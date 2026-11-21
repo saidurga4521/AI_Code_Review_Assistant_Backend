@@ -606,3 +606,34 @@ The user prompt contains:
 **Tip**
 
 - Write patterns as raw strings, `r"..."`, so `\s` and `\d` work correctly.
+
+
+## approval service
+
+**What this file does**
+
+- It handles the human-in-the-loop step. The AI only suggests fixes, and a person decides what happens to them.
+
+**Function 1: `get_pending_actions`**
+
+- Gets all fixes with status `PENDING_APPROVAL`, newest first.
+- Joins each fix (`WriteAction`) with its issue (`ReviewFinding`), so the person sees the file, the line, the title, and the severity.
+- `outerjoin` keeps the fix even if its finding is missing. That is why the code checks `if finding else None`.
+- Returns a list of dictionaries, so it is easy to send as JSON.
+
+**Function 2: `resolve_write_action`**
+
+- Changes a fix from `PENDING_APPROVAL` to `APPROVED` or `REJECTED`.
+- Checks 3 things before changing anything:
+  1. The decision must be `APPROVED` or `REJECTED`.
+  2. The action id must exist.
+  3. The action must still be pending, so a resolved action cannot be changed again.
+- Saves who decided (`resolved_by`) and when (`resolved_at`), so there is a record.
+- `db.commit()` saves it, and `db.refresh()` reloads the updated row.
+
+**Flow**
+
+1. The AI review stages a fix as `PENDING_APPROVAL`.
+2. Alex calls `get_pending_actions` and sees the list.
+3. Alex clicks APPROVE or REJECT, which calls `resolve_write_action`.
+4. The status changes, and it can’t be changed again.
