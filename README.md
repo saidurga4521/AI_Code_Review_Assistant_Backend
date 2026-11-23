@@ -683,3 +683,66 @@ The user prompt contains:
 
 - It shows whether the AI reviewer is worth trusting.
 - A low precision rate means too many false alarms, and the prompt needs to be improved.
+
+
+
+## **GitHub Webhook Integration**
+
+1. A developer opens or pushes code to a Pull Request on GitHub.
+2. GitHub sends an automated `POST` request (Webhook) to our backend: `POST /api/v1/webhooks/github`.
+3. Our backend verifies GitHub's cryptographic signature (`X-Hub-Signature-256`) using HMAC-SHA256 to ensure the request is genuinely from GitHub (preventing spoofing).
+4. Our backend extracts the repository, PR number, commit SHA, and diff, and automatically triggers `review_pull_request()`.
+
+
+## GitHub webhook
+
+**What this file does**
+
+- It receives messages from GitHub (webhooks). When a pull request is opened, it runs the AI review automatically.
+- URL: `POST /api/v1/webhooks/github`
+
+**Libraries I used**
+
+- `hmac` and `hashlib`: check the secret signature, so I know the message really came from GitHub.
+- `json`: turns GitHub’s text message into a Python dictionary.
+- `urllib`: downloads the diff from a web link.
+- `fastapi`: builds the endpoint and reads the headers.
+- `sqlalchemy`: finds the repository in my database.
+
+**Flow**
+
+1. Read the raw request body.
+2. Verify the signature (`X-Hub-Signature-256`). If it is wrong, return `401`.
+3. If the event is `ping`, reply “handshake successful”.
+4. If the event is not `pull_request`, ignore it.
+5. Parse the JSON. If it is invalid, return `400`.
+6. Only review these actions: `opened`, `synchronize`, `reopened`.
+7. Find the repo in my database: first by `clone_url`, then by name. If not found, return `404`.
+8. Get the diff (from `diff_text` in the payload, or download it from `diff_url`). If the download fails, return `502`.
+9. Run `review_pull_request(...)` and return a short summary.
+
+**Important points**
+
+- The signature is calculated from the exact raw bytes, so I read the raw body before parsing JSON.
+- `hmac.compare_digest` is a safe comparison. A normal `==` can leak timing clues.
+- `synchronize` means new commits were pushed to the PR.
+- `.get("key")` returns `None` instead of crashing when a key is missing.
+- Matching by `clone_url` first is better than matching by name, because it is unique.
+- Findings are saved as `PENDING_APPROVAL`, so a human still approves the fixes.
+
+**Status codes**
+
+- `401`: bad signature
+- `400`: invalid JSON
+- `404`: repo not registered
+- `502`: could not download the diff
+
+**To set up on GitHub**
+
+- Repo Settings, then Webhooks, then Add webhook.
+- Payload URL: `https://<my-server>/api/v1/webhooks/github`
+- Content type: `application/json`
+- Secret: the same value as `GITHUB_WEBHOOK_SECRET` in `.env`
+- Events: select “Pull requests”.
+
+

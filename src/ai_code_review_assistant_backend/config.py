@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
   ## LLM settings
   GEMINI_API_KEY:Optional[str]=Field(default=None)
+  ## Webhook settings
+  GITHUB_WEBHOOK_SECRET:Optional[str]=Field(default=None)
 
   # Tell pydantic to read from the .env
   model_config=SettingsConfigDict(
