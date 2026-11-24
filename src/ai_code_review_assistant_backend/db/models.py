@@ -7,14 +7,17 @@ class Repository(Base):
   __tablename__= "repositories"
 
   id=Column(Integer,primary_key=True,index=True)
+  user_id=Column(Integer,ForeignKey('users.id'),nullable=True)
   name=Column(String(255),unique=True,index=True,nullable=False)
   clone_url=Column(String(512),nullable=True)
   default_branch=Column(String(100),default='main')
   status=Column(String(50),default='UNINDEXED') # UNINDEXED, INDEXING, READY, FAILED
   created_at =Column(DateTime,default=datetime.datetime.now)
 
-  ## Relationship to its chunks
+  # Link back to user
+  owner=relationship('User',back_populates='repositories')
 
+  ## Relationship to its chunks
   chunks=relationship('IndexedChunk',back_populates='repository')
   reviews=relationship('PRReview',back_populates='repository')
 
@@ -109,6 +112,19 @@ class DeveloperFeedback(Base):
    finding=relationship('ReviewFinding',back_populates='feedback')
 
 
+class User(Base):
+  __tablename__ = 'users'
+
+  id=Column(Integer,primary_key=True,index=True,nullable=False)
+  email=Column(String(255),unique=True,index=True,nullable=False)
+  hashed_password=Column(String(255),nullable=False)
+  full_name=Column(String(255),nullable=True)
+  is_active=Column(Boolean,default=True)
+  is_superuser=Column(Boolean,default=True)
+  created_at=Column(DateTime,default=datetime.datetime.now)
+
+  #Relationship to owned repositories
+  repositories=relationship('Repository',back_populates='owner',cascade="all,delete-orphan")
 
 
    

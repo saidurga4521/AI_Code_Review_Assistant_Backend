@@ -12,6 +12,7 @@ class RepositoryCreate(BaseModel):
 
 class RepositoryResponse(BaseModel):
   id:int
+  user_id:Optional[int] =None
   name:str
   clone_url:Optional[str] = None
   default_branch:str

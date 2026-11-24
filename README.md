@@ -746,3 +746,130 @@ The user prompt contains:
 - Events: select “Pull requests”.
 
 
+# Authentication (`auth` router + `auth_service`)
+
+## What these two files do
+
+- `auth_service.py` has the helper functions: hash passwords, check passwords, create tokens, and decode tokens.
+- The `auth` router has the API endpoints: register, login, and "who am I".
+- Flow: **register → login (get token) → send the token on every request → server checks it**.
+
+## Libraries I used
+
+- `bcrypt`: hashes passwords safely.
+- `jwt` (PyJWT): creates and checks tokens.
+- `datetime`: sets the token expiry time.
+- `fastapi.security.OAuth2PasswordBearer`: reads the token from the request header.
+- `sqlalchemy`: looks up users in the database.
+
+---
+
+## Part 1: `auth_service.py`
+
+### 1. `hash_password`
+
+- Never store a plain password in the database. Store a hash.
+- `bcrypt.gensalt()` makes a random salt. The salt makes two users with the same password get different hashes.
+- `bcrypt.hashpw(...)` scrambles the password with the salt. It cannot be turned back into the password.
+- `.encode('utf-8')` turns the text into bytes, because bcrypt needs bytes.
+- `.decode('utf-8')` turns the hash back into text, so it can be saved in a text column.
+
+### 2. `verify_password`
+
+- Used at login. `bcrypt.checkpw` hashes the typed password again and compares it with the saved hash.
+- It returns `True` or `False`. The saved hash already contains the salt, so I don't store the salt separately.
+
+### 3. `create_access_token`
+
+- Makes a signed JWT (a token that proves who the user is).
+- `data.copy()` makes a copy, so the original dictionary is not changed.
+- `expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE)` means: use the custom lifetime if given, otherwise use the default from settings.
+- `timedelta` is a **length of time** (like 30 minutes), not a clock time.
+- `now + delta` gives the expiry time. It is saved in the token as `exp`.
+- I use **UTC** (the world's standard time) so the time means the same moment on every server. Store in UTC, and convert to local time only for display.
+- `jwt.encode(..., JWT_SECRET_KEY, algorithm=...)` signs the token. Without the secret key, nobody can make a valid token.
+
+### 4. `decode_access_token`
+
+- Checks the signature and the expiry, then returns the data inside the token.
+- If the token is fake, changed, or expired, `jwt.PyJWTError` is caught and it returns `None`.
+- `algorithms=[...]` is a list, so the token can only use the algorithm I allow.
+
+---
+
+## Part 2: the `auth` router
+
+### 5. `OAuth2PasswordBearer`
+
+```python
+oauth2_schema = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+```
+
+- It reads the token from the header: `Authorization: Bearer <token>`. "Bearer" means whoever carries the token is allowed in.
+- If the header is missing, FastAPI returns `401` automatically.
+- It only **reads** the token. It does **not** check if it is valid. My own code does that.
+- `tokenUrl` is only used by the `/docs` page, to know where the login endpoint is.
+
+### 6. `get_current_user` (the guard)
+
+- Any route that needs a logged-in user uses `Depends(get_current_user)`.
+- Steps:
+  1. Read the token (`Depends(oauth2_schema)`).
+  2. Decode it. If it is `None`, return `401`.
+  3. Get `sub` (the user id) from the token. If missing, `401`.
+  4. Find the user in the database. If not found, `401`.
+  5. If the user is not active, return an error.
+  6. Return the user.
+- All the failures use the same `credentials_exception`, so an attacker cannot tell which step failed.
+- `WWW-Authenticate: Bearer` is a header that tells the client to use a Bearer token.
+
+### 7. `POST /auth/register`
+
+- Checks if the email already exists. If yes, return `400`.
+- Saves the user with `hash_password(...)`, never the plain password.
+- New users start with `is_active=True` and `is_superuser=False`.
+- `status_code=201` means "created".
+- Uses `db.add()`, `db.commit()`, `db.refresh()` so the new `id` is filled in.
+
+### 8. `POST /auth/login`
+
+- Finds the user by email, then checks the password with `verify_password`.
+- Wrong email or wrong password gives the **same message**: "Invalid email or password". This does not reveal which emails exist.
+- Inactive users cannot log in.
+- Creates the token with `{'sub': str(user.id), 'email': user.email}`.
+  - `sub` ("subject") is the standard JWT field for the user id.
+  - JWT data is **readable by anyone** (it is only signed, not hidden), so never put a password or secrets inside.
+- Returns `access_token` and `token_type: "bearer"`.
+
+### 9. `GET /auth/me`
+
+- A protected route. It uses `Depends(get_current_user)` and returns the logged-in user.
+- Without a valid token, it returns `401`.
+
+---
+
+## Full flow with an example
+
+1. **Register:** Alice sends her email and password. The server saves a bcrypt hash.
+2. **Login:** Alice sends the same email and password. `verify_password` returns `True`, so she gets a token.
+3. **Call a protected route:**
+
+```http
+GET /api/v1/auth/me
+Authorization: Bearer eyJhbGci...
+```
+
+4. `oauth2_schema` reads the token, `decode_access_token` checks it, `get_current_user` finds Alice, and `/me` returns her profile.
+5. After the token expires, `decode_access_token` returns `None` and Alice gets `401`. She logs in again.
+
+## Status codes used
+
+- `201`: user created
+- `400`: email already exists, or inactive account
+- `401`: bad login, or missing, invalid, or expired token
+
+## What I learned (small things)
+
+- `.encode('utf-8')` turns text into bytes. `.decode('utf-8')` turns bytes back into text.
+- `Depends(...)` runs a function before the route and gives the result to it.
+- A hash is one-way. A token is signed. Neither is the same as encryption.

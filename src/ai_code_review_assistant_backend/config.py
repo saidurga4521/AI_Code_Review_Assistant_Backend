@@ -23,6 +23,11 @@ class Settings(BaseSettings):
   ## Webhook settings
   GITHUB_WEBHOOK_SECRET:Optional[str]=Field(default=None)
 
+  ##JWT SECRET KEY
+  JWT_SECRET_KEY:str=Field(default='09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7')
+  ALGORITHM:str ='HS256'
+  ACCESS_TOKEN_EXPIRE:int=60*24 #24 hours
+
   # Tell pydantic to read from the .env
   model_config=SettingsConfigDict(
     env_file=str(BASE_DIR/".env"),

@@ -24,6 +24,8 @@ def get_db():
   db=SessionLocal()
   try:
     yield db
+  except Exception:
+    db.rollback()  #Rollback on ANY unhandled error 
   finally:
     db.close()   
 
