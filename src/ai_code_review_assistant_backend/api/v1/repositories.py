@@ -9,13 +9,16 @@ from ai_code_review_assistant_backend.services.indexing_service import index_rep
 
 from ai_code_review_assistant_backend.schemas.rag import QuestionRequest,QuestionResponse
 from ai_code_review_assistant_backend.services.rag_service import answer_codebase_question
+from ai_code_review_assistant_backend.api.v1.auth import get_current_user
+from ai_code_review_assistant_backend.db.models import User
+
 
 # create the router
 router=APIRouter(prefix='/repositories',tags=['Repositories'])
 
 #1.connect a new repository
 @router.post('/',response_model=RepositoryResponse)
-def create_repository(repo_in:RepositoryCreate,db:Session=Depends(get_db)):
+def create_repository(repo_in:RepositoryCreate,db:Session=Depends(get_db),current_user:User=Depends(get_current_user)):
   """
   connect a new github repository to the assistant
   """
@@ -28,6 +31,7 @@ def create_repository(repo_in:RepositoryCreate,db:Session=Depends(get_db)):
     )
   new_repo=Repository(
     name=repo_in.name,
+    user_id=current_user.id,
     clone_url=repo_in.clone_url,
     default_branch=repo_in.default_branch,
     status="UNINDEXED"
@@ -41,15 +45,18 @@ def create_repository(repo_in:RepositoryCreate,db:Session=Depends(get_db)):
 
 #2.GET/repositories:List all repositories
 @router.get('/',response_model=List[RepositoryResponse])
-def list_all_repositories(db:Session=Depends(get_db)):
+def list_all_repositories(db:Session=Depends(get_db),curr_user:User=Depends(get_current_user)):
   """
-  Get All Connected Repositories
+  Get All Connected Repositories owned by the current user(super users see all)
   """
-  return db.query(Repository).all()
+  if curr_user.is_superuser:
+    return db.query(Repository).all()
+  #otherwise return repos owned by that user
+  return db.query(Repository).filter((Repository.user_id == curr_user.id) | (Repository.user_id.is_(None))).all()
 
 #3.GET/repositories/{repo_id}:Get single repository using id
 @router.get('/{repo_id}',response_model=RepositoryResponse)
-def get_repository(repo_id:int,db:Session=Depends(get_db)):
+def get_repository(repo_id:int,db:Session=Depends(get_db),curr_user:User=Depends(get_current_user)):
   """
   Get the repository using repo_id
   """
@@ -59,6 +66,13 @@ def get_repository(repo_id:int,db:Session=Depends(get_db)):
       status_code=status.HTTP_400_BAD_REQUEST,
       detail=f"Repository with id {repo_id} not found"
     )
+
+  #permission check
+  if repo.user_id and repo.user_id != curr_user.id and not curr_user.is_superuser:
+    raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this repository."
+        )
   return repo
 
 #4.POST/repositories/{repo_id}/index: Trigger indexing

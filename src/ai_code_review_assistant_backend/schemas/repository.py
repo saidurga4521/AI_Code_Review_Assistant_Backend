@@ -12,7 +12,7 @@ class RepositoryCreate(BaseModel):
 
 class RepositoryResponse(BaseModel):
   id:int
-  user_id:Optional[int] =None
+  user_id:Optional[int] =None #owner user id
   name:str
   clone_url:Optional[str] = None
   default_branch:str
